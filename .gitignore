@@ -1,6 +1,14 @@
 # Binaries
 /bin/
 /dist/
+*.exe
+
+# Vendored deps (we do not vendor; this guards against accidental `go mod vendor`)
+/vendor/
+
+# Go workspaces (per-developer; not committed)
+go.work
+go.work.sum
 
 # Test artifacts
 coverage.out

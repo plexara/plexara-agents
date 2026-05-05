@@ -22,12 +22,17 @@ We will acknowledge receipt within **3 business days**, provide an initial asses
 
 ## Supported versions
 
-Until `v1.0.0`, only the latest minor release is supported. After `v1.0.0`, the policy will be updated.
+> No tagged releases exist yet. This matrix describes the policy that takes effect once `v0.1.0` ships. Until then, only the `main` branch is supported, and security fixes will be merged directly to `main`.
+
+Once releases exist:
 
 | Version  | Supported |
 | -------- | --------- |
-| `0.x`    | latest minor only |
-| `< 0.1`  | not supported (pre-release) |
+| Latest `0.x` minor | yes (security fixes merged to `main` and a patch release cut) |
+| Older `0.x` minors | no — please upgrade |
+| `< 0.1`  | n/a (pre-release) |
+
+After `v1.0.0`, the policy will be revisited and a longer support window introduced.
 
 ## Verifying releases
 

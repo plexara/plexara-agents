@@ -1,59 +1,56 @@
-.PHONY: all build test lint sec cover tidy tools fmt vet vuln clean help
+.PHONY: all build test lint sec cover tidy fmt vet vuln licenses clean help
 
 GO        ?= go
 GOFLAGS   ?=
 PKGS      ?= ./...
 COVERPROFILE ?= coverage.out
 
-# Pinned dev tools — installed by `make tools`. Versions tracked in internal/tools/tools.go.
-GOLANGCI_LINT ?= golangci-lint
-GOIMPORTS     ?= goimports
-GOVULNCHECK   ?= govulncheck
-GOSEC         ?= gosec
+# Dev tools are pinned via the `tool` directive in go.mod (Go 1.24+) and
+# invoked through `go tool <name>`. Run `go mod tidy` after pulling to
+# materialize them locally; no separate install step is required.
 
 all: build lint test ## Run build, lint, and test.
 
 build: ## Build all packages.
-	$(GO) build $(GOFLAGS) $(PKGS)
+	@out=$$($(GO) build $(GOFLAGS) $(PKGS) 2>&1); \
+		ec=$$?; \
+		if [ -n "$$out" ]; then echo "$$out"; fi; \
+		if echo "$$out" | grep -q "matched no packages"; then \
+			echo "(no Go packages yet — see issues #4 onward)"; \
+		fi; \
+		exit $$ec
 
 test: ## Run tests with race detector, shuffle, and coverage.
 	$(GO) test -race -shuffle=on -count=1 \
 		-covermode=atomic -coverprofile=$(COVERPROFILE) \
 		$(PKGS)
 
-cover: test ## Show coverage summary.
+cover: test ## Show coverage summary and write coverage.html.
 	$(GO) tool cover -func=$(COVERPROFILE) | tail -n 1
 	$(GO) tool cover -html=$(COVERPROFILE) -o coverage.html
 	@echo "Wrote coverage.html"
 
 lint: ## Run golangci-lint.
-	$(GOLANGCI_LINT) run $(PKGS)
+	$(GO) tool golangci-lint run $(PKGS)
 
 fmt: ## Format Go code.
-	$(GOIMPORTS) -w -local github.com/plexara/plexara-agents .
+	$(GO) tool goimports -w -local github.com/plexara/plexara-agents .
 
 vet: ## Run go vet.
 	$(GO) vet $(PKGS)
 
-sec: ## Run security scanners (gosec + govulncheck).
-	$(GOSEC) -quiet $(PKGS)
-	$(GOVULNCHECK) $(PKGS)
+sec: vuln ## Run security scanners (gosec + govulncheck).
+	$(GO) tool gosec -quiet $(PKGS)
 
-vuln: ## Run only govulncheck.
-	$(GOVULNCHECK) $(PKGS)
+vuln: ## Run govulncheck.
+	$(GO) tool govulncheck $(PKGS)
+
+licenses: ## Report on transitive dependency licenses.
+	$(GO) tool go-licenses report $(PKGS)
 
 tidy: ## Tidy go.mod and verify modules.
 	$(GO) mod tidy
 	$(GO) mod verify
-
-tools: ## Install pinned dev tools.
-	@echo "Installing dev tools (pinned in internal/tools/tools.go)..."
-	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint
-	$(GO) install golang.org/x/tools/cmd/goimports
-	$(GO) install golang.org/x/vuln/cmd/govulncheck
-	$(GO) install github.com/securego/gosec/v2/cmd/gosec
-	$(GO) install github.com/google/go-licenses
-	@echo "Done."
 
 clean: ## Remove build artifacts.
 	rm -rf bin dist

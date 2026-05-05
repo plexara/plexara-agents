@@ -2,15 +2,11 @@
 
 A Go reference implementation for building MCP-driven AI agents.
 
-[![CI](https://github.com/plexara/plexara-agents/actions/workflows/ci.yml/badge.svg)](https://github.com/plexara/plexara-agents/actions/workflows/ci.yml)
-[![Coverage](https://codecov.io/gh/plexara/plexara-agents/branch/main/graph/badge.svg)](https://codecov.io/gh/plexara/plexara-agents)
-[![Go Report Card](https://goreportcard.com/badge/github.com/plexara/plexara-agents)](https://goreportcard.com/report/github.com/plexara/plexara-agents)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/plexara/plexara-agents/badge)](https://scorecard.dev/viewer/?uri=github.com/plexara/plexara-agents)
-[![Release](https://img.shields.io/github/v/release/plexara/plexara-agents)](https://github.com/plexara/plexara-agents/releases)
 [![License](https://img.shields.io/github/license/plexara/plexara-agents)](LICENSE)
-[![Go Reference](https://pkg.go.dev/badge/github.com/plexara/plexara-agents.svg)](https://pkg.go.dev/github.com/plexara/plexara-agents)
 
 > Status: pre-v0.1, under active bootstrap. The API will change without notice until `v0.1.0` is tagged.
+>
+> CI, coverage, Go Report Card, OpenSSF Scorecard, release, and pkg.go.dev badges land as their underlying integrations come online in phases 2 (CI), 3+ (coverage / Go reference), and at first release (release / Scorecard).
 
 ## What this is
 

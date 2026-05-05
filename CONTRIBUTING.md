@@ -19,8 +19,10 @@ By participating in this project you agree to abide by the [Code of Conduct](COD
 ```sh
 git clone https://github.com/plexara/plexara-agents.git
 cd plexara-agents
-make tools    # installs pinned dev tools (golangci-lint, goimports, govulncheck, gosec, go-licenses)
+go mod tidy   # materializes the dev tools pinned via the `tool` directive in go.mod
 ```
+
+Tools are pinned via Go's `tool` directive (Go 1.24+). They are invoked through `go tool <name>` (e.g. `go tool golangci-lint run`). The Makefile wraps these. There is no separate `go install` step.
 
 Optional but recommended:
 
@@ -65,14 +67,18 @@ Allowed types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `perf`, `ci`,
 
 ### Signed commits
 
-Commits to `main` are required to be signed (GPG, SSH, or S/MIME). Configure once locally:
+Commits to `main` are required to be signed (GPG, SSH, or S/MIME). For SSH signing — the lowest-friction path on macOS and most Linux setups:
 
 ```sh
 git config --global commit.gpgsign true
-# or, for SSH signing:
 git config --global gpg.format ssh
 git config --global user.signingkey ~/.ssh/id_ed25519.pub
+git config --global gpg.ssh.allowedSignersFile ~/.ssh/allowed_signers
 ```
+
+Then add your signing key to GitHub: <https://github.com/settings/ssh/new> with the key type set to "Signing Key" (separate from authentication keys). Without that step, GitHub will accept the commit but show the signature as unverified.
+
+For GPG, replace the `gpg.format` and `user.signingkey` lines with your GPG key ID. See <https://docs.github.com/en/authentication/managing-commit-signature-verification> for end-to-end setup.
 
 ## Code standards
 
