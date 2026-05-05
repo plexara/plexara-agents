@@ -1,0 +1,17 @@
+# Default owner for everything in this repo.
+* @cjimti
+
+# CI / supply-chain configuration changes get extra scrutiny.
+/.github/                @cjimti
+/.goreleaser.yaml        @cjimti
+/.golangci.yml           @cjimti
+
+# The core library is the heart of the project.
+/core/                   @cjimti
+
+# Documentation owners.
+/docs/                   @cjimti
+/README.md               @cjimti
+/CONTRIBUTING.md         @cjimti
+/SECURITY.md             @cjimti
+/CODE_OF_CONDUCT.md      @cjimti

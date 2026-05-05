@@ -1,0 +1,31 @@
+# Binaries
+/bin/
+/dist/
+*.exe
+
+# Vendored deps (we do not vendor; this guards against accidental `go mod vendor`)
+/vendor/
+
+# Go workspaces (per-developer; not committed)
+go.work
+go.work.sum
+
+# Test artifacts
+coverage.out
+coverage.html
+*.test
+*.out
+*.prof
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local agent / tooling state
+.claude/
+
+# Env files
+.env
+.env.local
