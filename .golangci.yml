@@ -1,0 +1,107 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  build-tags:
+    - integration
+
+linters:
+  default: standard
+  enable:
+    - errcheck
+    - errorlint
+    - errname
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - revive
+    - gocritic
+    - gocyclo
+    - gocognit
+    - gosec
+    - prealloc
+    - unconvert
+    - unparam
+    - copyloopvar
+    - intrange
+    - nilerr
+    - nilnil
+    - contextcheck
+    - durationcheck
+    - exhaustive
+    - gomoddirectives
+    - gomodguard
+    - importas
+    - predeclared
+    - whitespace
+    - godot
+    - dupl
+    - nolintlint
+
+  settings:
+    gocyclo:
+      min-complexity: 15
+    gocognit:
+      min-complexity: 20
+    dupl:
+      threshold: 150
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-unused: false
+    revive:
+      severity: warning
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+        - name: increment-decrement
+        - name: var-naming
+        - name: var-declaration
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
+        - name: empty-block
+        - name: superfluous-else
+        - name: unused-parameter
+        - name: unreachable-code
+        - name: redefines-builtin-id
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - dupl
+          - gocyclo
+          - gocognit
+          - gosec
+          - errcheck
+      - path: internal/tools/tools\.go
+        linters:
+          - unused
+          - revive
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/plexara/plexara-agents
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

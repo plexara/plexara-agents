@@ -1,0 +1,23 @@
+# Binaries
+/bin/
+/dist/
+
+# Test artifacts
+coverage.out
+coverage.html
+*.test
+*.out
+*.prof
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local agent / tooling state
+.claude/
+
+# Env files
+.env
+.env.local
