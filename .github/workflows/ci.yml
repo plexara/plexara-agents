@@ -131,7 +131,11 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.out
           flags: core
-          fail_ci_if_error: true
+          # Set to true once the repository is registered with Codecov.
+          # See docs/ci.md "Codecov registration" for the one-time setup.
+          # Until then, upload failures are non-fatal so they cannot block
+          # an otherwise-clean PR.
+          fail_ci_if_error: false
 
   build:
     name: build (${{ matrix.goos }}/${{ matrix.goarch }})
