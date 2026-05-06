@@ -52,7 +52,13 @@ Per spec §14.3: `cmd/...` and `examples/...` are exercised in tests but not gat
 
 ## Empty source tree handling
 
-Until phase 3 (#4) lands the first Go source file, every CI workflow detects this and skips lint/test/build steps with an explanatory log message. The `lint` job still runs `go mod verify`, `go mod tidy -diff`, and `golangci-lint config verify` even on the empty tree. Once Go source lands, the detection step automatically activates the rest.
+Until phase 3 (#4) lands the first Go source file, every CI workflow detects this and skips Go-source-dependent steps with an explanatory log message. The `lint` job still runs `go mod verify`, `go mod tidy -diff`, and `golangci-lint config verify` even on the empty tree (these don't need Go source).
+
+Steps that require Go source and are gated behind the detect job include: `gofmt`, `go vet`, `golangci-lint run`, `go test`, `go build`, CodeQL analyze, `gosec`, `semgrep`, and `govulncheck` (which exits 1 with "no packages matched" on an empty tree). Trivy scans the filesystem and runs unconditionally.
+
+Once Go source lands, the detect step's `has-source` output flips to `true` and the rest of the pipeline activates without any workflow change.
+
+**Branch protection note**: do not enable required status checks for source-dependent jobs (`govulncheck`, `gosec`, `semgrep`, CodeQL `analyze go`, `lint` if you've added stricter sub-steps) until *after* phase 3 lands. Skipped jobs do not satisfy a required status check. The `ci pass` aggregator and the always-running checks (`review`, `conventional commit`, `trivy fs`) are safe to require immediately.
 
 ## Release process
 
