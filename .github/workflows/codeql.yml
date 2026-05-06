@@ -12,8 +12,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: codeql-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   analyze:
@@ -39,7 +39,7 @@ jobs:
         id: detect
         shell: bash
         run: |
-          if find . -name '*.go' -not -path './.*' -not -path '*/testdata/*' -print -quit | grep -q .; then
+          if find . -name '*.go' -not -path './.*' -not -path './vendor/*' -not -path '*/testdata/*' -print -quit | grep -q .; then
             echo "has-source=true" >> "$GITHUB_OUTPUT"
           else
             echo "has-source=false" >> "$GITHUB_OUTPUT"

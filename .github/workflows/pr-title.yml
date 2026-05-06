@@ -24,6 +24,7 @@ jobs:
             docs
             chore
             refactor
+            style
             test
             perf
             ci

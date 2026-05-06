@@ -13,8 +13,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: security-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   GO_VERSION: "1.26"
@@ -35,7 +35,7 @@ jobs:
       - id: detect
         shell: bash
         run: |
-          if find . -name '*.go' -not -path './.*' -not -path '*/testdata/*' -print -quit | grep -q .; then
+          if find . -name '*.go' -not -path './.*' -not -path './vendor/*' -not -path '*/testdata/*' -print -quit | grep -q .; then
             echo "has-source=true" >> "$GITHUB_OUTPUT"
           else
             echo "has-source=false" >> "$GITHUB_OUTPUT"

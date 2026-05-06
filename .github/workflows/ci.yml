@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   GO_VERSION: "1.26"
@@ -36,6 +36,7 @@ jobs:
         run: |
           if find . -name '*.go' \
               -not -path './.*' \
+              -not -path './vendor/*' \
               -not -path '*/testdata/*' \
               -print -quit | grep -q .; then
             echo "has-source=true" >> "$GITHUB_OUTPUT"
@@ -66,9 +67,10 @@ jobs:
 
       - name: go mod tidy -diff
         run: |
-          go mod tidy -diff
-          if [ -n "$(go mod tidy -diff)" ]; then
+          diff=$(go mod tidy -diff)
+          if [ -n "$diff" ]; then
             echo "go.mod / go.sum drift detected; run 'go mod tidy' and commit."
+            echo "$diff"
             exit 1
           fi
 

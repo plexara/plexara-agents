@@ -37,26 +37,27 @@ jobs:
         shell: bash
         run: |
           # Emit one JSON entry per (package, FuzzXxx) pair so the matrix can fan out.
-          targets=$(go test -list 'Fuzz.*' ./... 2>/dev/null \
-            | awk '
-                /^ok / || /^---/ { next }
-                /^FAIL/ { next }
-                /^Fuzz/ { fuzz[NR]=$0; pkgline=NR; next }
-                /^[a-zA-Z]/ { pkg=$0 }
-                END {
-                  for (n in fuzz) {
-                    print pkg "::" fuzz[n]
-                  }
-                }' \
-            | jq -R -s -c 'split("\n") | map(select(length > 0))')
-          if [ -z "$targets" ] || [ "$targets" = "[]" ]; then
+          # `go test -list` prints fuzz names *before* the trailing "ok <pkg>" line,
+          # so we iterate per-package via `go list` rather than parsing the combined
+          # stream.
+          targets=()
+          while IFS= read -r pkg; do
+            [ -z "$pkg" ] && continue
+            while IFS= read -r fuzz; do
+              [ -z "$fuzz" ] && continue
+              targets+=("$pkg::$fuzz")
+            done < <(go test -list 'Fuzz.*' "$pkg" 2>/dev/null | awk '/^Fuzz/')
+          done < <(go list ./... 2>/dev/null)
+
+          if [ ${#targets[@]} -eq 0 ]; then
             echo "targets=[]" >> "$GITHUB_OUTPUT"
             echo "has-targets=false" >> "$GITHUB_OUTPUT"
             echo "No fuzz targets discovered."
           else
-            echo "targets=$targets" >> "$GITHUB_OUTPUT"
+            json=$(printf '%s\n' "${targets[@]}" | jq -R . | jq -s -c .)
+            echo "targets=$json" >> "$GITHUB_OUTPUT"
             echo "has-targets=true" >> "$GITHUB_OUTPUT"
-            echo "Discovered: $targets"
+            echo "Discovered: $json"
           fi
 
   fuzz:
