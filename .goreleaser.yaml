@@ -1,0 +1,152 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+project_name: plexara-agents
+
+before:
+  hooks:
+    - go mod tidy
+    - go mod verify
+
+builds:
+  - id: ask
+    main: ./cmd/ask
+    binary: ask
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .Commit }}
+      - -X main.date={{ .CommitDate }}
+      - -X main.builtBy=goreleaser
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    ids: [ask]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+      - SECURITY.md
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+  algorithm: sha256
+
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    output: true
+    certificate: "${artifact}.pem"
+    args:
+      - sign-blob
+      - --yes
+      - --output-certificate=${certificate}
+      - --output-signature=${signature}
+      - "${artifact}"
+
+sboms:
+  - id: cyclonedx
+    artifacts: archive
+    documents:
+      - "{{ .ArtifactName }}.cyclonedx.sbom.json"
+    cmd: syft
+    args: ["${artifact}", "--output", "cyclonedx-json={{ .Document }}"]
+  - id: spdx
+    artifacts: archive
+    documents:
+      - "{{ .ArtifactName }}.spdx.sbom.json"
+    cmd: syft
+    args: ["${artifact}", "--output", "spdx-json={{ .Document }}"]
+
+snapshot:
+  version_template: "{{ .Tag }}-snapshot-{{ .ShortCommit }}"
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: Features
+      regexp: "^.*feat[(\\w)]*:+.*$"
+      order: 0
+    - title: Bug fixes
+      regexp: "^.*fix[(\\w)]*:+.*$"
+      order: 1
+    - title: Performance
+      regexp: "^.*perf[(\\w)]*:+.*$"
+      order: 2
+    - title: Documentation
+      regexp: "^.*docs[(\\w)]*:+.*$"
+      order: 3
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - "^chore\\(deps\\):"
+      - "^chore\\(ci\\):"
+      - "^test:"
+      - "^ci:"
+      - "^Merge pull request"
+
+homebrew_casks:
+  - name: plexara-agents
+    ids: [default]
+    binaries: [ask]
+    repository:
+      owner: plexara
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    commit_author:
+      name: plexara-bot
+      email: support@plexara.io
+    commit_msg_template: "chore(formula): bump {{ .ProjectName }} to {{ .Tag }}"
+    directory: Casks
+    homepage: "https://github.com/plexara/plexara-agents"
+    description: "Local-first MCP-driven AI agents for Go"
+    license: Apache-2.0
+    skip_upload: auto
+
+release:
+  github:
+    owner: plexara
+    name: plexara-agents
+  draft: false
+  prerelease: auto
+  mode: replace
+  header: |
+    ## plexara-agents {{ .Tag }}
+
+    See `CHANGELOG.md` for the full list of changes.
+
+    ### Verifying artifacts
+
+    Every archive ships with a Sigstore-signed `_checksums.txt` and accompanying
+    `.pem` certificate, plus CycloneDX and SPDX SBOMs. SLSA build provenance is
+    available via `gh attestation verify`. Verification commands are documented
+    in `SECURITY.md`.
+  footer: |
+    Released by GoReleaser.

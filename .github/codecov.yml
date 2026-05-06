@@ -1,0 +1,51 @@
+# Codecov configuration. Validated with `curl --data-binary @.github/codecov.yml https://codecov.io/validate`.
+codecov:
+  require_ci_to_pass: true
+  notify:
+    wait_for_ci: true
+
+coverage:
+  precision: 2
+  round: down
+  range: "70...95"
+  status:
+    project:
+      default: false
+      core:
+        # The library is the part of the project we care about. Aim for >80%
+        # statement coverage; PRs that drop coverage by more than 1pp fail.
+        target: 80%
+        threshold: 1%
+        flags:
+          - core
+        paths:
+          - core/
+        if_ci_failed: error
+    patch:
+      default: false
+      core:
+        target: 80%
+        flags:
+          - core
+        paths:
+          - core/
+        if_ci_failed: error
+
+flags:
+  core:
+    paths:
+      - core/
+    carryforward: false
+
+comment:
+  layout: "reach,diff,flags,files,footer"
+  behavior: default
+  require_changes: false
+
+ignore:
+  - "cmd/**"
+  - "examples/**"
+  - "docs/**"
+  - "**/testdata/**"
+  - "**/*_test.go"
+  - "**/mocks/**"
