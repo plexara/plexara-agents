@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+#
+# commit-msg gate. Enforces the Pre-commit Review Loop (PRL) by
+# requiring a `Reviewed-by:` trailer for production-code commits
+# (feat / fix / refactor / perf / build).
+#
+# Skipped for docs / chore / style / test commits.
+#
+# Bypass with SKIP_REVIEW=1.
+#
+# See docs/review-protocol.md.
+
+set -euo pipefail
+
+if [ "${SKIP_REVIEW:-}" = "1" ]; then
+    echo "[commit-msg] SKIP_REVIEW=1 set; bypassing PRL gate."
+    exit 0
+fi
+
+msg_file="$1"
+[ -f "$msg_file" ] || exit 0
+
+# First non-comment, non-blank line is the subject.
+subject=$(grep -vE '^(#|$)' "$msg_file" | head -n 1 | sed -e 's/^[[:space:]]*//')
+
+# Conventional Commits type extraction.
+# Matches:  type(scope): subject  OR  type: subject  OR  type!: subject
+type=$(printf '%s' "$subject" | sed -nE 's/^([a-z]+)(\(.+\))?!?:.*/\1/p')
+
+# Types that REQUIRE a Reviewed-by trailer.
+case "$type" in
+    feat|fix|refactor|perf|build)
+        # Require at least one non-whitespace character after `Reviewed-by:`.
+        if ! grep -qE '^Reviewed-by:[[:space:]]+[^[:space:]]' "$msg_file"; then
+            cat >&2 <<EOF
+
+[commit-msg] PRL violation.
+
+  Commit type '$type' requires a Reviewed-by trailer.
+  Run a critical-review agent on the diff, iterate fix→review
+  until clean, and add to the commit message:
+
+      Reviewed-by: <agent-or-name> (<reference>)
+
+  Bypass with SKIP_REVIEW=1 only for genuine emergencies; explain
+  the reason in the commit body. See docs/review-protocol.md.
+
+EOF
+            exit 1
+        fi
+        ;;
+    *)
+        # docs, chore, style, test — exempt.
+        ;;
+esac
+
+exit 0

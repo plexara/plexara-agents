@@ -44,6 +44,22 @@ make tidy     # go mod tidy
 make help     # full target list
 ```
 
+### Before every commit: the Pre-commit Review Loop (PRL)
+
+Code is not done until an independent review pass returns **zero blockers and zero should-fixes**. The loop:
+
+1. Write code. Add or update tests. Run `make verify`.
+2. Dispatch a critical-review agent (or arrange for a human reviewer) with a depth-of-scrutiny brief.
+3. Fix every blocker and should-fix the review surfaces. Address every design question with a code change or an explicit rationale.
+4. Re-run `make verify`.
+5. Dispatch a *second* review pass to confirm the fixes are clean and no new issues were introduced.
+6. Iterate until review is clean.
+7. Only then commit. The commit message must include a `Reviewed-by:` trailer.
+
+PRL applies to commits whose Conventional Commits type is `feat`, `fix`, `refactor`, `perf`, or `build`. It does not apply to pure `docs` / `chore` / `style` / `test` commits.
+
+The full protocol lives at `docs/review-protocol.md`. Do not skip it; the review-after-commit pattern wastes far more time than it saves.
+
 ### Before every push: `make verify`
 
 `make verify` is the canonical "ready to push" gate. It runs every check the CI pipeline runs that can run locally:
@@ -58,15 +74,26 @@ make help     # full target list
 
 **If `make verify` fails, do not push.** Fix the failure, re-run until green.
 
-### Pre-push hook (recommended)
+### Local hooks (recommended)
 
-Enable the repo's pre-push hook once per clone so `make verify` runs automatically before every `git push`:
+Enable the repo's hooks once per clone so PRL and `make verify` run automatically:
 
 ```sh
 git config core.hooksPath .githooks
 ```
 
-For genuine emergencies, `SKIP_VERIFY=1 git push` bypasses the hook. Don't abuse it; if you bypass, explain why in the PR description.
+This installs three hooks:
+
+- `pre-commit` — prints the PRL checklist before each commit.
+- `commit-msg` — refuses `feat` / `fix` / `refactor` / `perf` / `build` commits that lack a `Reviewed-by:` trailer.
+- `pre-push` — runs `make verify` before each push.
+
+For genuine emergencies:
+
+- `SKIP_REVIEW=1 git commit ...` bypasses the PRL gate
+- `SKIP_VERIFY=1 git push` bypasses the verify gate
+
+Don't abuse them; if you bypass, explain why in the commit body or PR description.
 
 ## Workflow
 

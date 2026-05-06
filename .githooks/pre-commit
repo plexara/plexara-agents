@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+#
+# Pre-commit gate. Enforces the Pre-commit Review Loop (PRL) by
+# refusing to commit production-code changes without a Reviewed-by
+# trailer in the commit message.
+#
+# Skipped automatically for commit messages whose type is purely
+# documentation/chore/style/test.
+#
+# Enable once per clone:
+#
+#     git config core.hooksPath .githooks
+#
+# Bypass for genuine emergencies (then explain in the commit body):
+#
+#     SKIP_REVIEW=1 git commit
+#
+# See docs/review-protocol.md for the full protocol.
+
+set -euo pipefail
+
+if [ "${SKIP_REVIEW:-}" = "1" ]; then
+    echo "[pre-commit] SKIP_REVIEW=1 set; skipping PRL gate."
+    exit 0
+fi
+
+# This hook is informational. The actual PRL gate (Reviewed-by trailer
+# enforcement) lives in `.githooks/commit-msg` so it has access to the
+# composed commit message. This hook prints the human-facing reminder
+# of the loop the maintainer is expected to have already completed
+# before reaching `git commit`.
+cat <<'EOF'
+
+[pre-commit] Pre-commit Review Loop (PRL) reminder
+  1. Have you run `make verify` ? (must be clean)
+  2. Have you dispatched a critical-review agent on the diff?
+  3. Did the *latest* review pass return zero blockers AND zero should-fixes?
+  4. Are nits / design questions either fixed or accepted in the commit body?
+
+If yes to all four, your commit message must include:
+
+  Reviewed-by: <reviewer> (<reference>)
+
+If no to any, do NOT commit. Iterate the loop until clean.
+See docs/review-protocol.md.
+
+EOF
+
+exit 0
