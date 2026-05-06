@@ -1,0 +1,102 @@
+name: fuzz
+
+on:
+  schedule:
+    - cron: "0 4 * * *"  # nightly 04:00 UTC
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: "Per-target fuzz duration (e.g. 5m, 30s)"
+        required: false
+        default: "5m"
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    name: detect fuzz targets
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.targets.outputs.targets }}
+      has-targets: ${{ steps.targets.outputs.has-targets }}
+    steps:
+      - uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26"
+          cache: true
+
+      - name: Discover Fuzz targets
+        id: targets
+        shell: bash
+        run: |
+          # Emit one JSON entry per (package, FuzzXxx) pair so the matrix can fan out.
+          # `go test -list` prints fuzz names *before* the trailing "ok <pkg>" line,
+          # so we iterate per-package via `go list` rather than parsing the combined
+          # stream.
+          targets=()
+          while IFS= read -r pkg; do
+            [ -z "$pkg" ] && continue
+            while IFS= read -r fuzz; do
+              [ -z "$fuzz" ] && continue
+              targets+=("$pkg::$fuzz")
+            done < <(go test -list 'Fuzz.*' "$pkg" 2>/dev/null | awk '/^Fuzz/')
+          done < <(go list ./... 2>/dev/null)
+
+          if [ ${#targets[@]} -eq 0 ]; then
+            echo "targets=[]" >> "$GITHUB_OUTPUT"
+            echo "has-targets=false" >> "$GITHUB_OUTPUT"
+            echo "No fuzz targets discovered."
+          else
+            json=$(printf '%s\n' "${targets[@]}" | jq -R . | jq -s -c .)
+            echo "targets=$json" >> "$GITHUB_OUTPUT"
+            echo "has-targets=true" >> "$GITHUB_OUTPUT"
+            echo "Discovered: $json"
+          fi
+
+  fuzz:
+    name: fuzz ${{ matrix.target }}
+    needs: detect
+    if: needs.detect.outputs.has-targets == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJson(needs.detect.outputs.targets) }}
+    steps:
+      - uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26"
+          cache: true
+
+      - name: Fuzz
+        shell: bash
+        run: |
+          duration="${{ inputs.duration }}"
+          : "${duration:=5m}"
+          pkg="${{ matrix.target }}"
+          fuzz_pkg="${pkg%%::*}"
+          fuzz_name="${pkg##*::}"
+          echo "Fuzzing $fuzz_name in $fuzz_pkg for $duration"
+          go test "$fuzz_pkg" -run='^$' -fuzz="^${fuzz_name}\$" -fuzztime="$duration"
+
+      - name: Upload corpus on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-corpus-${{ matrix.target }}
+          path: testdata/fuzz/
+          if-no-files-found: ignore
+          retention-days: 14
