@@ -252,6 +252,198 @@ func TestOpenAICompatible_Stream(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatible_DoneWithPendingToolCallsKeepsToolCallsReason(t *testing.T) {
+	t.Parallel()
+
+	// Some runtimes terminate with [DONE] without ever sending
+	// finish_reason: tool_calls. The provider must still emit
+	// Finish{Reason: tool_calls} so the loop dispatches the call.
+	frames := []string{
+		`{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_z","type":"function","function":{"name":"lookup","arguments":"{\"k\":1}"}}]}}]}`,
+		`[DONE]`,
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeSSE(w, frames)
+	}))
+	t.Cleanup(srv.Close)
+
+	p := mustOpenAI(t, provider.OpenAIConfig{BaseURL: srv.URL + "/v1", HTTPClient: srv.Client()})
+	got := drainAll(t, p, provider.Request{Model: "x"})
+
+	if len(got) != 2 {
+		t.Fatalf("got %d events; want 2 (ToolCallRequest + Finish)", len(got))
+	}
+	if _, ok := got[0].(event.ToolCallRequest); !ok {
+		t.Errorf("got[0] = %T; want ToolCallRequest", got[0])
+	}
+	finish, ok := got[1].(event.Finish)
+	if !ok {
+		t.Fatalf("got[1] = %T; want Finish", got[1])
+	}
+	if finish.Reason != event.FinishReasonToolCalls {
+		t.Errorf("Finish.Reason = %q; want tool_calls (DONE flush must preserve the signal)", finish.Reason)
+	}
+}
+
+func TestOpenAICompatible_MultiLineDataFrame(t *testing.T) {
+	t.Parallel()
+
+	// Per the SSE spec, multiple `data:` lines before a blank-line
+	// boundary are concatenated with `\n`. Build a frame whose JSON
+	// is split across two `data:` lines.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		// First frame: JSON split across two `data:` lines.
+		fmt.Fprint(w, "data: {\"choices\":[{\"index\":0,\"delta\":\n")
+		fmt.Fprint(w, "data: {\"content\":\"hello\"}}]}\n\n")
+		// Second frame: terminator.
+		fmt.Fprint(w, "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	p := mustOpenAI(t, provider.OpenAIConfig{BaseURL: srv.URL + "/v1", HTTPClient: srv.Client()})
+	got := drainAll(t, p, provider.Request{Model: "x"})
+
+	want := []event.Event{
+		event.TextDelta{Text: "hello"},
+		event.Finish{Reason: event.FinishReasonStop},
+	}
+	if !equalEvents(t, got, want) {
+		t.Errorf("multi-line data: parse failed:\n  got %#v\n want %#v", got, want)
+	}
+}
+
+func TestOpenAICompatible_ContentFilterFinishReason(t *testing.T) {
+	t.Parallel()
+
+	frames := []string{
+		`{"choices":[{"index":0,"delta":{"content":"partial"}}]}`,
+		`{"choices":[{"index":0,"delta":{},"finish_reason":"content_filter"}]}`,
+		`[DONE]`,
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeSSE(w, frames)
+	}))
+	t.Cleanup(srv.Close)
+
+	p := mustOpenAI(t, provider.OpenAIConfig{BaseURL: srv.URL + "/v1", HTTPClient: srv.Client()})
+	got := drainAll(t, p, provider.Request{Model: "x"})
+
+	if len(got) != 2 {
+		t.Fatalf("got %d events; want 2", len(got))
+	}
+	finish, ok := got[1].(event.Finish)
+	if !ok {
+		t.Fatalf("got[1] = %T; want Finish", got[1])
+	}
+	if finish.Reason != event.FinishReasonContentFilter {
+		t.Errorf("Finish.Reason = %q; want content_filter", finish.Reason)
+	}
+}
+
+func TestOpenAICompatible_OversizedLineSurfacesAsError(t *testing.T) {
+	t.Parallel()
+
+	// A single SSE line exceeding the 1 MiB scanner ceiling must
+	// surface as an event.Error rather than panic, truncate silently,
+	// or be parsed as malformed JSON.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		// 2 MiB of `a` between two valid JSON braces.
+		fmt.Fprint(w, "data: {\"x\":\"")
+		blob := strings.Repeat("a", 2*1024*1024)
+		fmt.Fprint(w, blob)
+		fmt.Fprint(w, "\"}\n\n")
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	p := mustOpenAI(t, provider.OpenAIConfig{BaseURL: srv.URL + "/v1", HTTPClient: srv.Client()})
+	got := drainAll(t, p, provider.Request{Model: "x"})
+
+	// Either the first event is an Error (scanner exceeded its buffer)
+	// or — if some runtime supplies enough buffering — we tolerate other
+	// outcomes as long as nothing panics. We assert the strict case.
+	if len(got) == 0 {
+		t.Fatal("got 0 events; want at least one")
+	}
+	errEvt, ok := got[0].(event.Error)
+	if !ok {
+		t.Fatalf("got[0] = %T; want event.Error for oversized line", got[0])
+	}
+	if !strings.Contains(errEvt.Err.Error(), "read stream") {
+		t.Errorf("err = %v; want contains 'read stream'", errEvt.Err)
+	}
+}
+
+func TestOpenAICompatible_NonObjectToolArgsEmitsError(t *testing.T) {
+	t.Parallel()
+
+	frames := []string{
+		// The model emits `null` as the arguments — valid JSON but not
+		// an object. MCP servers expect objects.
+		`{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_n","function":{"name":"f","arguments":"null"}}]}}]}`,
+		`{"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,
+		`[DONE]`,
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeSSE(w, frames)
+	}))
+	t.Cleanup(srv.Close)
+
+	p := mustOpenAI(t, provider.OpenAIConfig{BaseURL: srv.URL + "/v1", HTTPClient: srv.Client()})
+	got := drainAll(t, p, provider.Request{Model: "x"})
+
+	if len(got) == 0 {
+		t.Fatal("got 0 events; want an Error")
+	}
+	errEvt, ok := got[0].(event.Error)
+	if !ok {
+		t.Fatalf("got[0] = %T; want event.Error", got[0])
+	}
+	if !strings.Contains(errEvt.Err.Error(), "must be a JSON object") {
+		t.Errorf("err = %v; want contains 'must be a JSON object'", errEvt.Err)
+	}
+}
+
+func TestOpenAICompatible_HeadersDeepCopiedAtConstruction(t *testing.T) {
+	t.Parallel()
+
+	// Construct the provider, then mutate the caller's Headers map.
+	// Subsequent requests must NOT see the post-construction mutation.
+	headers := map[string]string{"X-Plexara-Test": "original"}
+
+	var seen string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r.Header.Get("X-Plexara-Test")
+		writeSSE(w, ssePlain())
+	}))
+	t.Cleanup(srv.Close)
+
+	p := mustOpenAI(t, provider.OpenAIConfig{
+		BaseURL:    srv.URL + "/v1",
+		Headers:    headers,
+		HTTPClient: srv.Client(),
+	})
+
+	// Mutate AFTER construction.
+	headers["X-Plexara-Test"] = "MUTATED"
+
+	drainAll(t, p, provider.Request{Model: "x"})
+
+	if seen != "original" {
+		t.Errorf("header = %q; want %q (mutation after New must not propagate)", seen, "original")
+	}
+}
+
 func TestOpenAICompatible_InvalidToolArgsEmitsError(t *testing.T) {
 	t.Parallel()
 

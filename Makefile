@@ -29,6 +29,15 @@ BUILD_MATRIX = \
 # `make verify` is the canonical "ready to push" gate. It runs every
 # check CI runs that can run locally. If this passes, the odds of CI
 # failing are very low; if it fails, do not push.
+#
+# Intentionally CI-only (cannot be reproduced locally without GitHub
+# infrastructure):
+#   - codeql.yml          GitHub-hosted CodeQL analysis
+#   - scorecard.yml       OpenSSF Scorecard, weekly
+#   - dependency-review   PR-context only
+#   - trivy fs SARIF      runs locally via `trivy fs .` if installed,
+#                         but the SARIF upload is GitHub-only
+#   - codecov upload      requires CODECOV_TOKEN and the registered repo
 verify: fmt-check tidy-check mod-verify vet lint-config lint test build-matrix sec semgrep-check fuzz-quick
 	@echo ""
 	@echo "  ===================================="

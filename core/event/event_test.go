@@ -153,10 +153,14 @@ func TestErrUnknownType(t *testing.T) {
 	}
 }
 
-// TestSealedInterface confirms the Event interface is closed: only types
-// declared in this package implement it. The test compiles only because
-// each constructor returns the package's own variants.
-func TestSealedInterface(t *testing.T) {
+// TestEventInterfaceMembership confirms each declared variant satisfies
+// [event.Event]. It does not, and cannot, prove the type set is closed
+// at the language level — Go's interface satisfaction is structural,
+// so a type elsewhere that happens to implement an unexported `isEvent`
+// method on the right receiver could in principle satisfy the
+// interface. The test exists so that removing or renaming a variant
+// surfaces here, not deep in a downstream package.
+func TestEventInterfaceMembership(t *testing.T) {
 	t.Parallel()
 
 	var _ event.Event = event.TextDelta{}

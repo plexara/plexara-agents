@@ -29,13 +29,14 @@ type Event interface {
 type FinishReason string
 
 // Reasons a streamed turn may end. Mirror the OpenAI Chat Completions
-// finish_reason values.
+// finish_reason values. The agent loop emits an [Error] event for
+// failures rather than a Finish with an error reason; there is
+// intentionally no FinishReasonError constant.
 const (
 	FinishReasonStop          FinishReason = "stop"
 	FinishReasonToolCalls     FinishReason = "tool_calls"
 	FinishReasonLength        FinishReason = "length"
 	FinishReasonContentFilter FinishReason = "content_filter"
-	FinishReasonError         FinishReason = "error"
 )
 
 // Usage records token accounting for a streamed response. Zero values
@@ -152,6 +153,13 @@ func (e Finish) MarshalJSON() ([]byte, error) {
 // decode, Err is rebuilt as a plain string-only error. This is an
 // acceptable trade-off for replay; consumers needing the original chain
 // should capture it before serialization.
+//
+// Error has both [Error.MarshalJSON] and [Error.UnmarshalJSON]. The
+// asymmetric pair is load-bearing — Err is a non-marshal-friendly
+// `error` value, so encoding writes a Msg string and decoding rebuilds
+// Err from that string with [errors.New]. The other event variants
+// have only MarshalJSON; their fields are JSON-friendly, so the
+// default reflection-based decode is sufficient.
 type Error struct {
 	Err error
 }

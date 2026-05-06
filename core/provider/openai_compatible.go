@@ -42,10 +42,11 @@ type OpenAIConfig struct {
 // OpenAI Chat Completions API. Validated against Ollama, mlx-lm,
 // llama.cpp's server, and vLLM.
 type OpenAICompatible struct {
-	cfg    OpenAIConfig
-	client *http.Client
-	apiKey string
-	url    string
+	cfg     OpenAIConfig
+	client  *http.Client
+	apiKey  string
+	headers map[string]string // deep-copied from cfg.Headers at construction
+	url     string
 }
 
 // ErrConfig is returned by [NewOpenAICompatible] when the configuration
@@ -70,13 +71,24 @@ func NewOpenAICompatible(cfg OpenAIConfig) (*OpenAICompatible, error) {
 		client = defaultHTTPClient()
 	}
 
+	// Deep-copy Headers so post-construction mutations on the caller's
+	// map cannot affect future requests.
+	var headers map[string]string
+	if len(cfg.Headers) > 0 {
+		headers = make(map[string]string, len(cfg.Headers))
+		for k, v := range cfg.Headers {
+			headers[k] = v
+		}
+	}
+
 	url := strings.TrimSuffix(cfg.BaseURL, "/") + "/chat/completions"
 
 	return &OpenAICompatible{
-		cfg:    cfg,
-		client: client,
-		apiKey: apiKey,
-		url:    url,
+		cfg:     cfg,
+		client:  client,
+		apiKey:  apiKey,
+		headers: headers,
+		url:     url,
 	}, nil
 }
 
@@ -177,6 +189,10 @@ func buildChatRequest(req Request) chatRequest {
 		out.Messages = append(out.Messages, cm)
 	}
 	for _, t := range req.Tools {
+		// chatToolFunctionSpec(t) is a Go struct conversion: the two
+		// types must have identical field names, types, and order. A
+		// future field reorder or rename on either side becomes a
+		// compile error rather than a silent wire-format drift.
 		out.Tools = append(out.Tools, chatTool{
 			Type:     "function",
 			Function: chatToolFunctionSpec(t),
@@ -207,7 +223,7 @@ func (p *OpenAICompatible) Stream(ctx context.Context, req Request) (<-chan even
 	if p.apiKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
 	}
-	for k, v := range p.cfg.Headers {
+	for k, v := range p.headers {
 		httpReq.Header.Set(k, v)
 	}
 
@@ -274,6 +290,12 @@ type toolCallAccumulator struct {
 type streamState struct {
 	toolCalls map[int]*toolCallAccumulator
 	usage     event.Usage
+	// dataBuf accumulates `data:` lines for a single SSE event. Per the
+	// SSE spec, multiple `data:` lines before a blank-line boundary are
+	// concatenated with `\n`. None of the runtimes we target today emit
+	// multi-line frames, but the buffering is necessary for spec
+	// correctness and future-proofs us against servers that do.
+	dataBuf strings.Builder
 }
 
 // streamStatus tells the caller whether a sub-step wants to keep
@@ -323,11 +345,25 @@ func (p *OpenAICompatible) runStream(ctx context.Context, body io.ReadCloser, ou
 		sendErr(fmt.Errorf("provider: read stream: %w", err))
 		return
 	}
+	// EOF without a closing blank line — flush any buffered `data:` lines.
+	if st.dataBuf.Len() > 0 {
+		switch p.dispatchData(st.dataBuf.String(), st, send, sendErr) {
+		case streamDone, streamAbort:
+			return
+		case streamContinue:
+		}
+		st.dataBuf.Reset()
+	}
 	// Stream ended without a finish_reason or [DONE]; synthesize.
+	hadToolCalls := len(st.toolCalls) > 0
 	if !p.flushPending(st.toolCalls, sendErr, send) {
 		return
 	}
-	_ = send(event.Finish{Reason: event.FinishReasonStop, Usage: st.usage})
+	reason := event.FinishReasonStop
+	if hadToolCalls {
+		reason = event.FinishReasonToolCalls
+	}
+	_ = send(event.Finish{Reason: reason, Usage: st.usage})
 }
 
 func (p *OpenAICompatible) handleLine(
@@ -336,21 +372,58 @@ func (p *OpenAICompatible) handleLine(
 	send func(event.Event) bool,
 	sendErr func(error),
 ) streamStatus {
-	if line == "" || strings.HasPrefix(line, ":") {
+	// Empty line is the SSE event boundary: dispatch the buffered data.
+	if line == "" {
+		if st.dataBuf.Len() == 0 {
+			return streamContinue
+		}
+		data := st.dataBuf.String()
+		st.dataBuf.Reset()
+		return p.dispatchData(data, st, send, sendErr)
+	}
+	// SSE comment / keep-alive.
+	if strings.HasPrefix(line, ":") {
 		return streamContinue
 	}
+	// Non-`data:` field lines (e.g. `event:`, `id:`, `retry:`) are not
+	// used by the chat-completions stream protocol; ignore them.
 	if !strings.HasPrefix(line, "data:") {
 		return streamContinue
 	}
-	data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+	// Per RFC 6, exactly one optional space after the colon is stripped.
+	payload := strings.TrimPrefix(line, "data:")
+	payload = strings.TrimPrefix(payload, " ")
+	if st.dataBuf.Len() > 0 {
+		st.dataBuf.WriteByte('\n')
+	}
+	st.dataBuf.WriteString(payload)
+	return streamContinue
+}
+
+func (p *OpenAICompatible) dispatchData(
+	data string,
+	st *streamState,
+	send func(event.Event) bool,
+	sendErr func(error),
+) streamStatus {
+	data = strings.TrimSpace(data)
 	if data == "" {
 		return streamContinue
 	}
 	if data == "[DONE]" {
+		hadToolCalls := len(st.toolCalls) > 0
 		if !p.flushPending(st.toolCalls, sendErr, send) {
 			return streamAbort
 		}
-		_ = send(event.Finish{Reason: event.FinishReasonStop, Usage: st.usage})
+		reason := event.FinishReasonStop
+		if hadToolCalls {
+			// Some runtimes terminate with [DONE] without ever sending
+			// finish_reason: tool_calls. Preserve the tool-calls signal so
+			// the agent loop dispatches the call rather than treating the
+			// turn as complete.
+			reason = event.FinishReasonToolCalls
+		}
+		_ = send(event.Finish{Reason: reason, Usage: st.usage})
 		return streamDone
 	}
 	var chunk chatChunk
@@ -443,6 +516,15 @@ func (p *OpenAICompatible) flushPending(
 		}
 		if !json.Valid([]byte(args)) {
 			sendErr(fmt.Errorf("provider: tool call %q has invalid JSON args: %s", acc.ID, args))
+			return false
+		}
+		// Tool arguments must be a JSON object per the OpenAI Chat
+		// Completions schema. A model that emits null/array/scalar will
+		// be rejected by downstream MCP servers with a less-actionable
+		// error; surface it here as an Error event instead.
+		trimmed := strings.TrimLeft(args, " \t\n\r")
+		if len(trimmed) == 0 || trimmed[0] != '{' {
+			sendErr(fmt.Errorf("provider: tool call %q args must be a JSON object, got: %s", acc.ID, args))
 			return false
 		}
 		if !send(event.ToolCallRequest{
