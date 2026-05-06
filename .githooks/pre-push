@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+#
+# Local pre-push hook. Runs `make verify` before every push so that
+# code which would fail CI never leaves the workstation.
+#
+# Enable once per clone:
+#
+#     git config core.hooksPath .githooks
+#
+# Bypass for genuine emergencies (then explain in the PR description):
+#
+#     SKIP_VERIFY=1 git push
+#
+set -euo pipefail
+
+if [ "${SKIP_VERIFY:-}" = "1" ]; then
+    echo "[pre-push] SKIP_VERIFY=1 set; skipping make verify."
+    exit 0
+fi
+
+echo "[pre-push] Running 'make verify' before push..."
+echo "[pre-push] Set SKIP_VERIFY=1 to bypass (do not abuse)."
+echo
+
+if ! command -v make >/dev/null 2>&1; then
+    echo "[pre-push] 'make' not found on PATH; cannot run verify gate." >&2
+    exit 1
+fi
+
+start=$(date +%s)
+if make verify; then
+    end=$(date +%s)
+    echo
+    echo "[pre-push] make verify passed in $((end - start))s. Pushing."
+    exit 0
+else
+    echo
+    echo "[pre-push] make verify FAILED. Push blocked." >&2
+    echo "[pre-push] Fix the failures, re-run 'make verify' until clean, then push again." >&2
+    exit 1
+fi

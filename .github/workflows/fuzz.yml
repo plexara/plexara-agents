@@ -83,10 +83,15 @@ jobs:
 
       - name: Fuzz
         shell: bash
+        # Values from `inputs` and `matrix` flow through env to avoid
+        # `${{ }}` interpolation inside a shell `run:` block — the
+        # standard remediation for the run-shell-injection rule.
+        env:
+          DURATION: ${{ inputs.duration }}
+          TARGET: ${{ matrix.target }}
         run: |
-          duration="${{ inputs.duration }}"
-          : "${duration:=5m}"
-          pkg="${{ matrix.target }}"
+          duration="${DURATION:-5m}"
+          pkg="$TARGET"
           fuzz_pkg="${pkg%%::*}"
           fuzz_name="${pkg##*::}"
           echo "Fuzzing $fuzz_name in $fuzz_pkg for $duration"

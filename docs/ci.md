@@ -15,6 +15,29 @@ Operator's runbook for the GitHub Actions workflows under `.github/workflows/` a
 | `fuzz.yml` | nightly cron + manual | Extended fuzz cycles, one matrix entry per `Fuzz*` target |
 | `release.yml` | tag `v*.*.*` | GoReleaser, cosign keyless signing, SBOMs, SLSA build provenance |
 
+## Local verification — `make verify`
+
+Before pushing, run `make verify`. It executes every check CI runs that can run locally (lint, vet, mod tidy, race tests with coverage, the full cross-compile matrix, gosec, govulncheck, **Semgrep in the same Docker image CI uses**, plus a brief fuzz pass). If `make verify` is green, CI is very likely to be green.
+
+The repo ships a pre-push hook at `.githooks/pre-push` that runs `make verify` automatically. Enable it with:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+`SKIP_VERIFY=1 git push` bypasses for emergencies.
+
+`CONTRIBUTING.md` is the contributor-facing reference; this section is the operator's reference.
+
+## Codecov registration
+
+The repo is configured to upload coverage to Codecov from `ci.yml`. Until the repo is registered with Codecov:
+
+1. The Codecov upload step runs but emits "Repository not found" and exits non-zero.
+2. `fail_ci_if_error: false` is set on the upload step so this does not fail CI.
+
+Once registered (`gh secret list` should show `CODECOV_TOKEN`; visit <https://app.codecov.io/gh/plexara/plexara-agents> and complete onboarding), flip `fail_ci_if_error: true` in `ci.yml` so a real upload regression starts blocking merges again.
+
 ## Required and optional secrets
 
 | Secret | Required for | Notes |

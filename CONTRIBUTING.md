@@ -34,15 +34,39 @@ pre-commit install
 ### Common tasks
 
 ```sh
+make verify   # run every check CI runs that can run locally — REQUIRED before pushing
 make build    # go build ./...
 make test     # go test -race -shuffle=on -count=1 -covermode=atomic ./...
 make lint     # golangci-lint run
 make sec      # gosec + govulncheck
 make cover    # produce coverage.out and a human-readable summary
 make tidy     # go mod tidy
+make help     # full target list
 ```
 
-`make` with no arguments runs `build`, `lint`, and `test`. Run that before pushing.
+### Before every push: `make verify`
+
+`make verify` is the canonical "ready to push" gate. It runs every check the CI pipeline runs that can run locally:
+
+- `gofmt -l`, `go mod verify`, `go mod tidy -diff`
+- `go vet`, `golangci-lint config verify`, `golangci-lint run`
+- `go test -race -shuffle=on -count=1 -covermode=atomic`
+- Cross-compile build matrix (`darwin/{amd64,arm64}`, `linux/{amd64,arm64}`, `windows/amd64`)
+- `gosec`, `govulncheck`
+- **Semgrep** in the same Docker image CI uses (skipped with a warning if Docker isn't available locally — but if Docker is available and you don't run it, you cannot prove a clean run)
+- 5s fuzz pass per `Fuzz*` target
+
+**If `make verify` fails, do not push.** Fix the failure, re-run until green.
+
+### Pre-push hook (recommended)
+
+Enable the repo's pre-push hook once per clone so `make verify` runs automatically before every `git push`:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+For genuine emergencies, `SKIP_VERIFY=1 git push` bypasses the hook. Don't abuse it; if you bypass, explain why in the PR description.
 
 ## Workflow
 
