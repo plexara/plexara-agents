@@ -12,7 +12,7 @@ GOFLAGS       ?=
 PKGS          ?= ./...
 COVERPROFILE  ?= coverage.out
 SEMGREP_IMAGE ?= semgrep/semgrep@sha256:326e5f41cc972bb423b764a14febbb62bbad29ee1c01820805d077dd868fea48
-FUZZTIME      ?= 5s
+FUZZTIME      ?= 15s
 
 # Build matrix mirrors ci.yml — keep in sync.
 BUILD_MATRIX = \
@@ -155,15 +155,22 @@ tidy-check: ## Fail if go.mod / go.sum drift from `go mod tidy`.
 		exit 1; \
 	fi
 
-fuzz-quick: ## Run each Fuzz* target for FUZZTIME (default 5s).
-	@found=0; \
+fuzz-quick: ## Run each Fuzz* target for FUZZTIME (default 15s) in a fresh corpus.
+	@cachedir=$$(mktemp -d -t plexara-fuzz-cache.XXXXXX); \
+	trap 'rm -rf "$$cachedir"' EXIT; \
+	found=0; \
 	while IFS= read -r pkg; do \
 		[ -z "$$pkg" ] && continue; \
 		while IFS= read -r fuzz; do \
 			[ -z "$$fuzz" ] && continue; \
 			found=1; \
 			printf '  fuzz %s/%s for %s ... ' "$$pkg" "$$fuzz" "$(FUZZTIME)"; \
-			out=$$($(GO) test "$$pkg" -run='^$$' -fuzz="^$$fuzz\$$" -fuzztime=$(FUZZTIME) 2>&1); \
+			out=$$($(GO) test "$$pkg" \
+				-run='^$$' -fuzz="^$$fuzz\$$" \
+				-fuzztime=$(FUZZTIME) \
+				-test.fuzzcachedir="$$cachedir" \
+				-timeout=120s \
+				2>&1); \
 			ec=$$?; \
 			if [ $$ec -ne 0 ]; then echo "FAIL"; echo "$$out"; exit $$ec; fi; \
 			echo "ok"; \
