@@ -35,17 +35,12 @@ package mcp
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
-
-	// math/rand is correct here for non-cryptographic backoff jitter;
-	// see Backoff.Delay. Both linters' suppressions are kept inline
-	// because each scanner uses its own dialect:
-	//   - semgrep:    nosemgrep on the import line (Semgrep's grammar)
-	//   - gosec:      //nolint:gosec at the call site (golangci-lint)
 	"math"
-	"math/rand/v2" // nosemgrep: go.lang.security.audit.crypto.math_random.math-random-used
+	"math/big"
 	"net/http"
 	"net/url"
 	"os/exec"
@@ -202,14 +197,25 @@ func (b Backoff) Delay(attempt int) time.Duration {
 	}
 	// Defense in depth: even with the cap-clamp, a caller-supplied
 	// Cap of math.MaxInt64 would make int64(d)+1 overflow to
-	// MinInt64, which would panic rand.Int64N. Subtract one before
-	// the +1 so the maximum operand stays representable.
+	// MinInt64. Subtract one before the +1 so the maximum operand
+	// stays representable.
 	if d == math.MaxInt64 {
 		d = math.MaxInt64 - 1
 	}
-	// Full jitter: pick uniformly in [0, d]. Math/rand is appropriate
-	// here — backoff jitter is not security-sensitive.
-	return time.Duration(rand.Int64N(int64(d) + 1)) //nolint:gosec // jitter is non-cryptographic by design
+	// Full jitter, picked uniformly in [0, d]. crypto/rand is the
+	// portable answer for "give me a non-negative integer below N";
+	// jitter doesn't *need* cryptographic strength, but using
+	// crypto/rand keeps every static analyzer happy without case-by-
+	// case suppressions and the per-call cost is negligible against
+	// network I/O.
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(d)+1))
+	if err != nil {
+		// rand.Reader is documented as always available on supported
+		// platforms. Degrade safely if a misconfigured environment
+		// somehow returns an error: cap the delay rather than panic.
+		return d
+	}
+	return time.Duration(n.Int64())
 }
 
 // Sentinel errors callers may match with [errors.Is].
@@ -721,10 +727,15 @@ func buildSDKTransport(_ context.Context, cfg ServerConfig) (sdkmcp.Transport, e
 			return nil, fmt.Errorf("%w: server %q: stdio Endpoint has no command tokens", ErrConfig, cfg.Name)
 		}
 		argv = append(argv, cfg.StdioArgs...)
-		// G204 nolint: argv comes from operator-controlled ServerConfig,
-		// not user input. The package doc warns operators about env
-		// inheritance; treat the command as trusted.
-		cmd := exec.Command(argv[0], argv[1:]...) //nolint:gosec // cfg-controlled by maintainer
+		// argv comes from operator-controlled ServerConfig (the
+		// maintainer's MCP config file), not from end-user input.
+		// gosec's G204 ("subprocess with potentially tainted input")
+		// is suppressed with native #nosec syntax — recognized by
+		// both the standalone gosec used in security.yml and gosec
+		// running inside golangci-lint. Stdio MCP servers exist to
+		// run external binaries; an allowlist would prevent the
+		// operator from configuring the system at all.
+		cmd := exec.Command(argv[0], argv[1:]...) // #nosec G204 -- argv is operator-trusted config
 		return &sdkmcp.CommandTransport{Command: cmd}, nil
 	case TransportSSE:
 		return &sdkmcp.SSEClientTransport{
