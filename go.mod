@@ -11,7 +11,7 @@ tool (
 )
 
 require (
-	github.com/modelcontextprotocol/go-sdk v1.6.0
+	github.com/modelcontextprotocol/go-sdk v1.6.1
 	golang.org/x/sync v0.20.0
 )
 
